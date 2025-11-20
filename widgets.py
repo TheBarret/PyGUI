@@ -2,10 +2,6 @@ import pygame
 from component import Component
 from theme import get_theme
 
-# Tier 1 Components
-# - Label
-# - Image
-
 class Label(Component):
     def __init__(self, x=0, y=0, w=0, h=0, *, caption: str):
         super().__init__(x, y, w, h)
@@ -175,9 +171,6 @@ class Overlay(Component):
         
         super().draw(surface)
 
-import pygame
-from component import Component
-
 class Gauge(Component):
     def __init__(self, x=0, y=0, w=100, h=100, *, min_val=0, max_val=100, value=0, on_update=None):
         super().__init__(x, y, w, h)
@@ -321,3 +314,4 @@ class Window(Component):
         super().draw(surface)
         
         
+
