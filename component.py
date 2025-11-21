@@ -1,5 +1,6 @@
 import pygame
 from typing import List, Optional, Tuple, TYPE_CHECKING
+from theme import get_theme
 
 if TYPE_CHECKING:
     from component import Component
@@ -30,6 +31,10 @@ class Component:
 
         # Lifecycle mount state
         self._mounted = False
+        
+        # visual helpers
+        self.theme = get_theme()
+        self.font = self.theme.get_font
 
     # ─── Coordinate Transforms ───────────────────────────────────────────────
 

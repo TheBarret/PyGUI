@@ -1,3 +1,4 @@
+import os
 import pygame
 from component import Component
 from theme import get_theme
@@ -6,8 +7,6 @@ class Label(Component):
     def __init__(self, x=0, y=0, w=0, h=0, *, caption: str):
         super().__init__(x, y, w, h)
         self.text = caption
-        self.theme = get_theme()
-        self.font = self.theme.get_font
         self.color = self.theme.colors.accent
         self._surface_cache = None
         self._dirty = True
@@ -47,10 +46,8 @@ class Button(Component):
         super().__init__(x, y, w, h)
         self.text = text
         self.on_click = on_click
-        self.theme = get_theme()
-        self.font = self.theme.get_font
-        self.text_color = self.theme.colors.fg
 
+        self.text_color = self.theme.colors.fg
         self.bg_normal = self.theme.colors.accent
         self.bg_hover = self.theme.colors.accent_hover
         self.bg_pressed = self.theme.colors.accent_hover
@@ -109,27 +106,26 @@ class Button(Component):
         if not self.visible: return
         if self._dirty: self._render_cache()
         surface.blit(self._surface_cache, (self.rect.x, self.rect.y))
-
+        
+        
 class Overlay(Component):
     def __init__(self, x=0, y=0, w=400, h=300, *, cell_size=20):
         super().__init__(x, y, w, h)
-        self.theme = get_theme()
+        
         self.base_cell_size = cell_size
         self.grid_color = self.theme.colors.border_dark
         self.major_tick_color = self.theme.colors.border_light
         self.adaptive_size = cell_size
         
     def _calculate_adaptive_size(self):
-        # Adjust cell size to fit grid nicely within current dimensions
         width_units = max(10, self.rect.w // self.base_cell_size)
         height_units = max(10, self.rect.h // self.base_cell_size)
         
-        # Find cell size that gives clean division
         self.adaptive_size = min(
             self.rect.w // width_units,
             self.rect.h // height_units
         )
-        self.adaptive_size = max(8, self.adaptive_size)  # Minimum size
+        self.adaptive_size = max(8, self.adaptive_size)  
         
     def update(self, dt):
         if self.parent:
@@ -138,36 +134,49 @@ class Overlay(Component):
             if self.rect.w != new_w or self.rect.h != new_h:
                 self.rect.w = new_w
                 self.rect.h = new_h
-                self._calculate_adaptive_size()  # Recalc on resize
+                self._calculate_adaptive_size()
         
     def draw(self, surface):
         if not self.visible:
             return
             
-        # keep track
         self._calculate_adaptive_size()
 
+        # Fill background
         pygame.draw.rect(surface, (30, 30, 40), self.rect)
         
         start_x = self.rect.x
         start_y = self.rect.y
-        end_x = self.rect.right
-        end_y = self.rect.bottom
+        end_x = self.rect.right - 2  # Adjust for pixel-perfect borders
+        end_y = self.rect.bottom - 1  # Adjust for pixel-perfect borders
         
-        # Use adaptive size for grid
         cell_size = self.adaptive_size
         
-        for x in range(start_x, end_x, cell_size):
-            if (x - start_x) % (cell_size * 5) == 0:
-                pygame.draw.line(surface, self.major_tick_color, (x, start_y), (x, end_y), 2)
-            else:
-                pygame.draw.line(surface, self.grid_color, (x, start_y), (x, end_y), 1)
+        # Calculate how many cells fit (including partial ones)
+        num_cells_x = (end_x - start_x) // cell_size + 1
+        num_cells_y = (end_y - start_y) // cell_size + 1
         
-        for y in range(start_y, end_y, cell_size):
-            if (y - start_y) % (cell_size * 5) == 0:
-                pygame.draw.line(surface, self.major_tick_color, (start_x, y), (end_x, y), 2)
-            else:
-                pygame.draw.line(surface, self.grid_color, (start_x, y), (end_x, y), 1)
+        # Draw vertical lines
+        for i in range(num_cells_x + 1):
+            x = start_x + (i * cell_size)
+            if x > end_x: 
+                x = end_x  # Clamp to boundary
+                
+            is_major = (i % 5 == 0)
+            color = self.major_tick_color if is_major else self.grid_color
+            width = 2 if is_major else 1
+            pygame.draw.line(surface, color, (x, start_y), (x, end_y), width)
+        
+        # Draw horizontal lines
+        for i in range(num_cells_y + 1):
+            y = start_y + (i * cell_size)
+            if y > end_y:
+                y = end_y  # Clamp to boundary
+                
+            is_major = (i % 5 == 0)
+            color = self.major_tick_color if is_major else self.grid_color
+            width = 2 if is_major else 1
+            pygame.draw.line(surface, color, (start_x, y), (end_x, y), width)
         
         super().draw(surface)
 
@@ -193,8 +202,8 @@ class Gauge(Component):
         radius = min(self.rect.w, self.rect.h) // 2 - 5
         
         # Draw gauge background
-        pygame.draw.circle(surface, (30, 30, 40), (center_x, center_y), radius)
-        pygame.draw.circle(surface, (60, 60, 80), (center_x, center_y), radius, 2)
+        pygame.draw.circle(surface, self.theme.colors.accent, (center_x, center_y), radius)
+        pygame.draw.circle(surface, self.theme.colors.accent_hover, (center_x, center_y), radius, 2)
         
         # Draw ticks
         for i in range(0, 11):  # 10 major ticks
@@ -226,26 +235,30 @@ class Gauge(Component):
         super().draw(surface)
 
 class Window(Component):
-    def __init__(self, x=100, y=100, w=300, h=200, *, title="Window"):
+    def __init__(self, x=100, y=100, w=300, h=200, *, title="Window", can_resize=False, can_close=True):
         super().__init__(x, y, w, h)
-        self.theme = get_theme()
+        
         self.title = title
         self.dragging = False
         self.drag_offset = (0, 0)
         self.resizing = False
         self.resize_start = (0, 0)
         self.min_size = (150, 120)
-        self.can_resize = False
-        self.can_close = False
-        self.header = Label(0, 0, w, 25, caption=title)
-        self.add_child(self.header)
-        self.close_btn = Button("X", w-25, 0, 25, 25, on_click=self.close)
-        self.add_child(self.close_btn)
-        self.header.focusable = True
-        self.bring_to_front()
+        self.can_resize = can_resize
+        self.can_close = can_close
         
+        # Load and resize icon
+        self.icon_file = os.path.join('assets', 'logo.png') 
+        original_icon = pygame.image.load(self.icon_file)
+        self.icon_surface = pygame.transform.scale(original_icon, (16, 16))
+        
+        # Only keep interactive elements as children
+        if self.can_close:
+            self.close_btn = Button("X", w-25, 0, 25, 25, on_click=self.close)
+            self.add_child(self.close_btn)
+        self.bring_to_front()
 
-    def close(self, btn, pos):
+    def close(self, btn=None):
         if self.can_close:
             if self.parent:
                 self.parent.remove_child(self)
@@ -256,12 +269,15 @@ class Window(Component):
         local_pos = self.global_to_local(pos)
         
         if button == 0:
-            if self.header.rect.collidepoint(local_pos):
+            # Header drag area (entire top 25px)
+            header_rect = pygame.Rect(0, 0, self.rect.w, 25)
+            if header_rect.collidepoint(local_pos):
                 self.dragging = True
                 self.drag_offset = (local_pos[0], local_pos[1])
                 self.bring_to_front()
                 return True
                 
+            # Resize handle
             resize_area = pygame.Rect(self.rect.w-20, self.rect.h-20, 20, 20)
             if resize_area.collidepoint(local_pos):
                 self.resizing = True
@@ -281,7 +297,6 @@ class Window(Component):
             new_w = max(self.min_size[0], self.resize_start[0] + delta[0])
             new_h = max(self.min_size[1], self.resize_start[1] + delta[1])
             self.rect.w, self.rect.h = new_w, new_h
-            self.header.rect.w = new_w
             self.close_btn.rect.x = new_w - 25
 
     def on_drag_end(self, delta, offset):
@@ -290,28 +305,32 @@ class Window(Component):
         self.dragging = False
         self.resizing = False
 
-    def on_mouse_enter(self):
-        self.header.set_text(f"[{self.title}]")
-
-    def on_mouse_leave(self):
-        self.header.set_text(self.title)
-
     def draw(self, surface):
         if not self.visible:
             return
             
+        # Window body
         pygame.draw.rect(surface, (40, 45, 60), self.rect)
         pygame.draw.rect(surface, (60, 70, 100), self.rect, 2)
         
+        # Header background
         header_rect = pygame.Rect(self.rect.x, self.rect.y, self.rect.w, 25)
         pygame.draw.rect(surface, (70, 80, 110), header_rect)
         pygame.draw.rect(surface, (100, 110, 140), header_rect, 1)
         
+        # Draw icon (properly scaled to 16x16)
+        surface.blit(self.icon_surface, (self.rect.x + 5, self.rect.y + 5))
+        
+        # Draw title text
+        title_surf = self.font.render(self.title, True, (240, 240, 240))
+        surface.blit(title_surf, (self.rect.x + 25, self.rect.y + 5))
+        
+        # Draw resize handle
         if self.can_resize:
             resize_rect = pygame.Rect(self.rect.right-20, self.rect.bottom-20, 20, 20)
             pygame.draw.rect(surface, (80, 90, 120), resize_rect)
         
+        # Draw children (close button)
         super().draw(surface)
         
         
-

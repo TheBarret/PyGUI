@@ -179,19 +179,20 @@ class App:
 # ─── Bootstrapper ───────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    
+    # create GUI stack
     app = App(width=800, height=600, title="Application",
         resizable=True, vsync=True,
         target_fps=60, tick_rate=1.0 / 60.0
     )
-    
     shell = Shell(x=0, y=0, w=800, h=600, resizable=False)
-    workspace = Window(x=0, y=0, w=800, h=500, title="Workspace")
-    overlay = Overlay(x=0, y=25, w=800, h=500, cell_size=7)
-    fps = Gauge(x=0, y=25, w=64, h=64, min_val=0, max_val=120, value=0, on_update=lambda: app.clock.get_fps())
+    workspace = Window(x=0, y=0, w=800, h=500, title="Workspace", can_resize=False, can_close=False)
+    overlay = Overlay(x=0, y=25, w=800, h=500, cell_size=8)
+    fps = Gauge(x=800-40, y=25, w=40, h=40, min_val=0, max_val=120, value=0, on_update=lambda: app.clock.get_fps())
+    
     workspace.add_child(overlay)
     workspace.add_child(fps)
     shell.add_child(workspace)
-    
+
     app.set_root(shell, shell.write)
-    
     app.run()
