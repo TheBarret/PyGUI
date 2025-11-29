@@ -1,8 +1,12 @@
 import time
+import random
 import pygame
 from pygame.event import Event
 from typing import Optional, Tuple, Dict, Callable, Any, List, Set, TYPE_CHECKING
 from bus import BROADCAST, Response, Packet, AddressBus
+
+if TYPE_CHECKING:
+    from component import Component
 
 class Dispatcher:
     def __init__(self):
@@ -40,8 +44,7 @@ class Dispatcher:
         """Process event through hierarchy, returns True if event was consumed"""
         if not self.visible or not self.enabled:
             return False
-            
-        # Process children first (reverse order for front-to-back)
+        # container first (reverse, front-to-back)
         for child in reversed(self.children):
             if child.handle_event(event):
                 return True
@@ -52,7 +55,6 @@ class Dispatcher:
         """Process event for this specific component"""
         if self.passthrough:
             return False
-            
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             return self._handle_mouse_click(event)
         elif event.type == pygame.MOUSEMOTION:
@@ -65,16 +67,17 @@ class Dispatcher:
     def _handle_mouse_click(self, event: Event) -> bool:
         """Handle mouse click events"""
         if self.is_inside(event.pos):
-            # Deactivate other components in hierarchy
-            if self.parent and not self.active:
+            # Always deactivate siblings in container — ensures exclusive focus
+            if self.parent:
                 self.parent.deactivate_container(self)
-                
-            self.active = True
+            # Only trigger 'focus' if state changes
+            if not self.active:
+                self.active = True
+                self.trigger('focus', event)
             self.trigger('click', event)
-            self.trigger('focus', event)
             return True
         elif self.active:
-            # Lost focus
+            # focus lost
             self.active = False
             self.trigger('blur', event)
             
@@ -115,9 +118,9 @@ class Dispatcher:
         for handler in self.events[event_type]:
             handler(self, event)
     
-    # Geometry-dependent methods
+    # Geometry-dependent methods — ABSTRACT CONTRACT
     def is_inside(self, point: Tuple[int, int]) -> bool:
-        """Check if point is inside component bounds - relies on Component.get_absolute_rect()"""
+        """Check if point is inside component bounds"""
         return self.get_absolute_rect().collidepoint(point)
     
     def contains_point(self, point: Tuple[int, int]) -> bool:
@@ -125,6 +128,10 @@ class Dispatcher:
         return self.is_inside(point) or any(
             child.contains_point(point) for child in self.children
         )
+    
+    # Geometry contract (must implement)
+    def get_absolute_rect(self) -> pygame.Rect:
+        raise NotImplementedError("Error: missing get_absolute_rect() override")
         
 class Messenger:
     def __init__(self):
@@ -154,9 +161,9 @@ class Messenger:
             elif msg.rs == Response.M_SHUTDOWN:
                 self.destroy()
             elif msg.rs == Response.M_REDRAW:
-                hoster.bus.post(Packet(receiver=msg.sender,sender=self.address, rs=Response.M_OK, data=self.get_metadata()))
+                hoster.bus.post(Packet(receiver=msg.sender,sender=self.address, rs=Response.M_OK, data=True))
                 self.reset()
-            elif msg.rs == Response.M_UPDATE:
+            elif msg.rs == Response.M_THEME:
                 self.bg = pygame.Color(msg.data['bg'])
                 self.fg = pygame.Color(msg.data['fg'])
                 self.shade = pygame.Color(msg.data['shade'])
@@ -166,14 +173,102 @@ class Messenger:
                 
 class Theme:
     def __init__(self):
+        # Filler
+        self.filler = False
+        self.filler_style = 0 # 0-4: solid, dots, lines, crossed, gradient
+        
         # Rendering
         self.surface: Optional[pygame.Surface] = None
-        
-        # Visual properties
-        self.bg = pygame.Color(90, 25, 10)
-        self.fg = pygame.Color(255, 255, 255)
-        self.shade = pygame.Color(10, 10, 10)
-        self.font_big = pygame.Color(255, 255, 255)
-        self.font_small = pygame.Color(155, 155, 155)
-        self.surface: Optional[pygame.Surface] = None
         self.redraw = True
+        
+        # basics
+        self.bg             = pygame.Color(90, 90, 90)
+        self.fg             = pygame.Color(255, 255, 255)
+        self.shade          = pygame.Color(70, 70, 70)
+        
+        # fonts
+        self.font_big       = pygame.Color(255, 255, 255)
+        self.font_small     = pygame.Color(155, 155, 155)
+        self.font           = pygame.font.Font('./assets/JetBrainsMono-Regular.ttf', 12)
+        self.fontB          = pygame.font.Font('./assets/JetBrainsMono-Bold.ttf', 15)
+        self.fontS          = pygame.font.Font('./assets/JetBrainsMono-Thin.ttf', 10)
+        
+    def draw_frame(self, surface: pygame.Surface) -> None:
+        if not self.visible: return
+        abs_rect = self.get_absolute_rect()
+        x, y, w, h = abs_rect
+        pygame.draw.line(surface, self.fg, (x, y), (x + w, y), 1)           # Top
+        pygame.draw.line(surface, self.fg, (x, y + h), (x + w, y + h), 1)   # Bottom  
+        pygame.draw.line(surface, self.fg, (x, y), (x, y + h), 1)           # Left
+        pygame.draw.line(surface, self.fg, (x + w, y), (x + w, y + h), 1)   # Right
+    
+    def fill_region(self, surface: pygame.Surface, pattern: int = 0) -> None:
+        abs_rect = self.get_absolute_rect()
+        
+        if pattern == 0:
+            pygame.draw.rect(surface, self.bg, abs_rect)
+        elif pattern == 1:
+            for y in range(abs_rect.y, abs_rect.bottom, 4):
+                pygame.draw.line(surface, self.shade, (abs_rect.x, y), (abs_rect.right, y), 1)
+        elif pattern == 2:
+            for y in range(abs_rect.y, abs_rect.bottom, 3):
+                pygame.draw.line(surface, self.shade, (abs_rect.x, y), (abs_rect.right, y), 1)
+            for x in range(abs_rect.x, abs_rect.right, 3):
+                pygame.draw.line(surface, self.shade, (x, abs_rect.y), (x, abs_rect.bottom), 1)
+        elif pattern == 3:
+            for y in range(abs_rect.y + 2, abs_rect.bottom, 4):
+                for x in range(abs_rect.x + 2, abs_rect.right, 4):
+                    surface.set_at((x, y), self.shade)
+        elif pattern == 4:
+            for i, y in enumerate(range(abs_rect.y, abs_rect.bottom)):
+                ratio = i / abs_rect.height
+                color = self._color_lerp(self.bg, self.shade, ratio)
+                pygame.draw.line(surface, color, (abs_rect.x, y), (abs_rect.right, y))
+
+    def new_theme(self, base_hue: int = None) -> Dict[str, Tuple[int, int, int]]:
+        if base_hue is None:
+            base_hue = random.randint(0, 360)
+        return {
+            'fg':        Theme._hsl_to_rgb(base_hue, 90, 90),   # default foreground
+            'bg':        Theme._hsl_to_rgb(base_hue, 30, 30),   # default background
+            'shade':     Theme._hsl_to_rgb(base_hue, 45, 45),   # default shadow
+
+            # Text
+            'font_small': Theme._hsl_to_rgb(base_hue, 80, 80),  # default text
+            'font_big':   Theme._hsl_to_rgb(base_hue, 90, 90),  # default header
+            }
+            
+    def _color_lerp(self, color1: pygame.Color, color2: pygame.Color, ratio: float) -> pygame.Color:
+        """Interpolate between two colors"""
+        r = int(color1.r + (color2.r - color1.r) * ratio)
+        g = int(color1.g + (color2.g - color1.g) * ratio)
+        b = int(color1.b + (color2.b - color1.b) * ratio)
+        return pygame.Color(r, g, b)
+   
+    @staticmethod
+    def _hsl_to_rgb(h: int, s: int, l: int) -> Tuple[int, int, int]:
+        """Convert HSL to RGB tuple"""
+        h = h / 360.0
+        s = s / 100.0
+        l = l / 100.0
+        
+        if s == 0:
+            rgb = l, l, l
+        else:
+            def hue_to_rgb(p, q, t):
+                if t < 0: t += 1
+                if t > 1: t -= 1
+                if t < 1/6: return p + (q - p) * 6 * t
+                if t < 1/2: return q
+                if t < 2/3: return p + (q - p) * (2/3 - t) * 6
+                return p
+            
+            q = l * (1 + s) if l < 0.5 else l + s - l * s
+            p = 2 * l - q
+            
+            r = hue_to_rgb(p, q, h + 1/3)
+            g = hue_to_rgb(p, q, h)
+            b = hue_to_rgb(p, q, h - 1/3)
+            rgb = r, g, b
+        
+        return int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255)

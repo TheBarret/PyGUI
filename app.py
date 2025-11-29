@@ -8,15 +8,13 @@ if __name__ == "__main__":
     
     init = Engine(1000, 600, 60, 'init')
     
-    stack = (Gui(init)
-              .create(10, 10, 600, 400)
-              .with_caption('Console')
-              .with_workspace()
-              .with_debugger()
-              .arrange()
-              .with_random_theme())
-
-    stack.build()
+    dialog = (Gui(init)
+              .create(200, 100, 250, 120)
+              .as_dialog('Window')
+              .set_theme()
+              .build())
+    
+   
     init.run()
     
     

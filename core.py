@@ -59,6 +59,7 @@ class Engine(Component):
              
             self.surface.fill((0, 0, 0))
             self.draw(self.surface)
+            
             pygame.display.flip()
         
         pygame.quit()
@@ -83,8 +84,12 @@ class Engine(Component):
     def handle_message(self, msg: Packet) -> None:
         if msg.sender == self.address:
             return
-        if msg.rs == Response.M_TERM:
+        
+        print(f'[engine] message from: {msg.sender} {msg.rs.name}({msg.data})')
+        
+        if msg.rs == Response.M_BYE:
             defunkt = msg.data
             if defunkt:
+                print(f'[engine] unloading {defunkt} at address {defunkt.address}')
                 self.remove(defunkt)
         super().handle_message(msg)

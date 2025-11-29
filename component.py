@@ -1,8 +1,6 @@
-import time
-import random
 import pygame
 from typing import Optional, Tuple, Dict, Callable, Any, List, Set, TYPE_CHECKING
-
+from bus import BROADCAST, Response, Packet, AddressBus
 from chain import Dispatcher, Messenger, Theme
 
 if TYPE_CHECKING:
@@ -10,15 +8,23 @@ if TYPE_CHECKING:
 
 class Component(Dispatcher, Messenger, Theme):
     def __init__(self, x: int = 0, y: int = 0, width: int = 128, height: int = 64):
-        # initializer
+        # initializers
+        self.rect = pygame.Rect(x, y, max(1, width), max(1, height))
+        Theme.__init__(self)
         Dispatcher.__init__(self)
         Messenger.__init__(self)
-        Theme.__init__(self)
         
-        # allocate region
-        self.rect = pygame.Rect(x, y, max(1, width), max(1, height))
-        
+    # FALLBACK
+    def draw(self, surface: pygame.Surface) -> None:
+        if not self.visible:
+            return
+        if self.filler:
+            self.fill_region(surface, self.filler_style)
+        self.draw_frame(surface)
+        super().draw(surface)
+    
     # MANAGEMENT
+    
     def add(self, child: 'Component') -> None:
         if child.parent: 
             child.parent.remove(child)
@@ -43,6 +49,7 @@ class Component(Dispatcher, Messenger, Theme):
         self.children.clear()
         self.parent = None
         self.terminated = True
+        self.rect = pygame.Rect(self.rect.x, self.rect.y, 1, 1)
     
     def reset(self) -> None:
         self.redraw = True
@@ -67,7 +74,8 @@ class Component(Dispatcher, Messenger, Theme):
             self.parent.children.insert(0, self)
             self.parent.reset()
 
-    # UTILITIES
+    # QOL UTILITIES
+    
     def get_absolute_rect(self) -> pygame.Rect:
         x, y = self.rect.topleft
         parent = self.parent
@@ -76,48 +84,17 @@ class Component(Dispatcher, Messenger, Theme):
             y += parent.rect.y
             parent = parent.parent
         return pygame.Rect(x, y, self.rect.width, self.rect.height)
-
-    @staticmethod
-    def next_theme(base_hue: int = None) -> Dict[str, Tuple[int, int, int]]:
-        """Generate a harmonious pastel theme based on hue"""
-        if base_hue is None:
-            base_hue = random.randint(0, 360)
-        
-        return {
-            'bg': Component._hsl_to_rgb(base_hue, 15, 12),        # Dark background
-            'fg': Component._hsl_to_rgb(base_hue, 25, 25),        # Medium foreground  
-            'shade': Component._hsl_to_rgb(base_hue, 20, 18),     # Border/shadow
-            'font_small': Component._hsl_to_rgb(base_hue, 70, 85), # Light text
-            'font_big': Component._hsl_to_rgb(base_hue, 80, 95),   # Bright text
-        }
     
-    @staticmethod
-    def _hsl_to_rgb(h: int, s: int, l: int) -> Tuple[int, int, int]:
-        """Convert HSL to RGB tuple"""
-        h = h / 360.0
-        s = s / 100.0
-        l = l / 100.0
-        
-        if s == 0:
-            rgb = l, l, l
-        else:
-            def hue_to_rgb(p, q, t):
-                if t < 0: t += 1
-                if t > 1: t -= 1
-                if t < 1/6: return p + (q - p) * 6 * t
-                if t < 1/2: return q
-                if t < 2/3: return p + (q - p) * (2/3 - t) * 6
-                return p
-            
-            q = l * (1 + s) if l < 0.5 else l + s - l * s
-            p = 2 * l - q
-            
-            r = hue_to_rgb(p, q, h + 1/3)
-            g = hue_to_rgb(p, q, h)
-            b = hue_to_rgb(p, q, h - 1/3)
-            rgb = r, g, b
-        
-        return int(rgb[0] * 255), int(rgb[1] * 255), int(rgb[2] * 255)
+    def clip_text(self, font: pygame.font.Font, text: str, padding: int = 1) -> str:
+        # TODO: 
+        # check if 'text' length won't exceed self.rect bounds
+        # if false:
+        #   - return text untouched
+        # else:
+        #   - measure and cut at what character we have overflow
+        #   - use padding to set a soft bound to avoid font glyph clipping
+        #   - return reduced sequence, add cosmetic tail  '...'
+        return text
 
     # PROPERTIES
     @property

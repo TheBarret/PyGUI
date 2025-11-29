@@ -11,28 +11,24 @@ BROADCAST = -1
 
 
 class Response(IntEnum):
-    # generic states
+    # generic (dialog) states
     M_OK = 0
     M_ERR = 1
     M_BUSY = 2
-    
-    # solicitating dialog states
-    M_YES = 3
-    M_NO = 4
-    M_CANCEL = 5
+    M_CANCEL = 3
 
     # discovery
-    M_PING = 10     # scan for metadata
+    M_PING = 10     # get local metadata
     M_PONG = 11     # metadata reply
     
     # management
-    M_REDRAW = 20   # unconditional redraw
-    M_SHUTDOWN = 21 # unconditional kill switch
-    M_UPDATE = 22   # unconditional theme update
-    M_TERM = 23     # solicitate self destruction
-    M_ORHPAN = 24   # component will remove itself from current parent and posts itself to reciever for adoption
+    M_REDRAW = 20   # force redraw
+    M_SHUTDOWN = 21 # kill switch
+    M_THEME = 22    # redraw theme
     
-    
+    # advertisers
+    M_REGISTER = 23 # component new
+    M_BYE = 24      # component closure
     
 
 @dataclass(frozen=True)
@@ -62,20 +58,20 @@ class AddressBus:
     
     def register(self, component: 'Component') -> int:
         addr = getattr(component, "address", -1)
-
         if addr < 0:
             addr = self._next_addr
             self._next_addr += 1
             component.address = addr
-
+        
         self._components[addr] = component
+        print(f'[register] {component.name} at: {component.address} {component.rect}')
         return addr
 
-    def unregister(self, address: int) -> None:
-        self._components.pop(address, None)
+    def unregister(self, component: 'Component') -> None:
+        self._components.pop(component.address, None)
+        print(f'[unregister] {component.name} at: {component.address} {component.rect}')
     
     # Posting
-    
     def post(self, msg: Packet) -> bool:
         """Queue a message; return False if full."""
         if len(self._messages) >= self._max_queue_size:
@@ -84,7 +80,6 @@ class AddressBus:
         return True
 
     # Pump
-    
     def pump(self) -> None:
         """Process all queued messages in FIFO order."""
         queue = self._messages
@@ -95,8 +90,9 @@ class AddressBus:
 
         for msg in queue:
             if msg.receiver == BROADCAST:
-                # Snapshot values to avoid mutation bleed
-                for comp in self._components.values():
+                # Snapshot list to allow safe mutation during dispatch
+                targets = list(self._components.values())
+                for comp in targets:
                     handler = getattr(comp, "handle_message", None)
                     if handler:
                         handler(msg)
@@ -109,7 +105,6 @@ class AddressBus:
 
     
     # Peek
-    
     def peek(self, address: int) -> List[Packet]:
         """Return queued messages targeted to `address` or broadcast."""
         return [
