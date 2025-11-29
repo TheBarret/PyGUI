@@ -8,6 +8,7 @@ if TYPE_CHECKING:
 
 # multicast address
 BROADCAST = -1
+MASTER = 0
 
 
 class Response(IntEnum):
@@ -64,12 +65,12 @@ class AddressBus:
             component.address = addr
         
         self._components[addr] = component
-        print(f'[register] {component.name} at: {component.address} {component.rect}')
+        #print(f'[register] {component.name} at: {component.address} {component.rect}')
         return addr
 
     def unregister(self, component: 'Component') -> None:
         self._components.pop(component.address, None)
-        print(f'[unregister] {component.name} at: {component.address} {component.rect}')
+        #print(f'[unregister] {component.name} at: {component.address} {component.rect}')
     
     # Posting
     def post(self, msg: Packet) -> bool:

@@ -1,6 +1,6 @@
 import pygame
 from typing import Optional, Tuple, Dict, Callable, Any, List, Set, TYPE_CHECKING
-from bus import BROADCAST, Response, Packet, AddressBus
+from bus import BROADCAST, MASTER, Response, Packet, AddressBus
 from chain import Dispatcher, Messenger, Theme
 
 if TYPE_CHECKING:
@@ -14,13 +14,15 @@ class Component(Dispatcher, Messenger, Theme):
         Dispatcher.__init__(self)
         Messenger.__init__(self)
         
-    # FALLBACK
+    # DRAW
+ 
     def draw(self, surface: pygame.Surface) -> None:
         if not self.visible:
             return
         if self.filler:
             self.fill_region(surface, self.filler_style)
-        self.draw_frame(surface)
+        if self.border:
+            self.draw_frame(surface)
         super().draw(surface)
     
     # MANAGEMENT
@@ -76,6 +78,16 @@ class Component(Dispatcher, Messenger, Theme):
 
     # QOL UTILITIES
     
+    def draw_clipped(self, surface: pygame.Surface) -> None:
+        abs_rect = self.get_absolute_rect()
+        old_clip = surface.get_clip()
+        try:
+            surface.set_clip(abs_rect)
+            for child in self.children:
+                child.draw(surface)
+        finally:
+            surface.set_clip(old_clip)
+    
     def get_absolute_rect(self) -> pygame.Rect:
         x, y = self.rect.topleft
         parent = self.parent
@@ -85,17 +97,6 @@ class Component(Dispatcher, Messenger, Theme):
             parent = parent.parent
         return pygame.Rect(x, y, self.rect.width, self.rect.height)
     
-    def clip_text(self, font: pygame.font.Font, text: str, padding: int = 1) -> str:
-        # TODO: 
-        # check if 'text' length won't exceed self.rect bounds
-        # if false:
-        #   - return text untouched
-        # else:
-        #   - measure and cut at what character we have overflow
-        #   - use padding to set a soft bound to avoid font glyph clipping
-        #   - return reduced sequence, add cosmetic tail  '...'
-        return text
-
     # PROPERTIES
     @property
     def x(self) -> int: return self.rect.x

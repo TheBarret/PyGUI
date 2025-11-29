@@ -3,7 +3,7 @@ import time
 import random
 from typing import List, Any, Tuple, Callable
 from component import Component
-from bus import BROADCAST, Response, Packet, AddressBus
+from bus import BROADCAST, MASTER, Response, Packet, AddressBus
 
 # ─── Engine ───────────────────────────────────────────────────────────
 
@@ -32,10 +32,12 @@ class Engine(Component):
     def add(self, child: 'Component') -> None:
         super().add(child)
         self.bus.register(child)
+        print(f'[engine] created {child.name} at address {child.address}')
         
     def remove(self, child: 'Component') -> None:
         super().remove(child)
         self.bus.unregister(child)
+        print(f'[engine] terminated {child.name} at address {child.address}')
         
     def run(self) -> None:
         self.running = True
@@ -84,12 +86,22 @@ class Engine(Component):
     def handle_message(self, msg: Packet) -> None:
         if msg.sender == self.address:
             return
-        
-        print(f'[engine] message from: {msg.sender} {msg.rs.name}({msg.data})')
+        if msg.receiver  == BROADCAST:
+            print(f'[engine] * [BROADCAST] <{msg.sender}> {msg.rs.name}')
+        else:
+            print(f'[engine] * <{msg.sender}> {msg.rs.name}')
         
         if msg.rs == Response.M_BYE:
             defunkt = msg.data
-            if defunkt:
-                print(f'[engine] unloading {defunkt} at address {defunkt.address}')
+            if defunkt and defunkt.terminated:
                 self.remove(defunkt)
         super().handle_message(msg)
+    
+    def set_theme(self, base_hue: int = None) -> None:
+        theme = self.new_theme(base_hue)
+        self.bus.post(Packet(
+            receiver=BROADCAST,
+            sender=MASTER,
+            rs=Response.M_THEME,
+            data=theme
+        ))

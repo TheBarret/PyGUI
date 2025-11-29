@@ -3,7 +3,7 @@ import random
 import pygame
 from pygame.event import Event
 from typing import Optional, Tuple, Dict, Callable, Any, List, Set, TYPE_CHECKING
-from bus import BROADCAST, Response, Packet, AddressBus
+from bus import BROADCAST, MASTER, Response, Packet, AddressBus
 
 if TYPE_CHECKING:
     from component import Component
@@ -42,7 +42,7 @@ class Dispatcher:
     # Event Propagation
     def handle_event(self, event: Event) -> bool:
         """Process event through hierarchy, returns True if event was consumed"""
-        if not self.visible or not self.enabled:
+        if not self.enabled:
             return False
         # container first (reverse, front-to-back)
         for child in reversed(self.children):
@@ -67,10 +67,10 @@ class Dispatcher:
     def _handle_mouse_click(self, event: Event) -> bool:
         """Handle mouse click events"""
         if self.is_inside(event.pos):
-            # Always deactivate siblings in container — ensures exclusive focus
+            # deactivate siblings in container
             if self.parent:
                 self.parent.deactivate_container(self)
-            # Only trigger 'focus' if state changes
+            # trigger 'focus' if state changes
             if not self.active:
                 self.active = True
                 self.trigger('focus', event)
@@ -118,7 +118,7 @@ class Dispatcher:
         for handler in self.events[event_type]:
             handler(self, event)
     
-    # Geometry-dependent methods — ABSTRACT CONTRACT
+    # Geometry-dependent methods
     def is_inside(self, point: Tuple[int, int]) -> bool:
         """Check if point is inside component bounds"""
         return self.get_absolute_rect().collidepoint(point)
@@ -131,7 +131,7 @@ class Dispatcher:
     
     # Geometry contract (must implement)
     def get_absolute_rect(self) -> pygame.Rect:
-        raise NotImplementedError("Error: missing get_absolute_rect() override")
+        raise NotImplementedError(f"Error: {self.name} is missing get_absolute_rect() override")
         
 class Messenger:
     def __init__(self):
@@ -170,10 +170,10 @@ class Messenger:
                 self.font_small = pygame.Color(msg.data['font_small'])
                 self.font_big = pygame.Color(msg.data['font_big'])
                 self.reset()
-                
 class Theme:
     def __init__(self):
-        # Filler
+        # Border & Filler
+        self.border = False
         self.filler = False
         self.filler_style = 0 # 0-4: solid, dots, lines, crossed, gradient
         
@@ -190,17 +190,16 @@ class Theme:
         self.font_big       = pygame.Color(255, 255, 255)
         self.font_small     = pygame.Color(155, 155, 155)
         self.font           = pygame.font.Font('./assets/JetBrainsMono-Regular.ttf', 12)
+        self.fontS          = pygame.font.Font('./assets/JetBrainsMono-Bold.ttf', 9)
         self.fontB          = pygame.font.Font('./assets/JetBrainsMono-Bold.ttf', 15)
-        self.fontS          = pygame.font.Font('./assets/JetBrainsMono-Thin.ttf', 10)
         
     def draw_frame(self, surface: pygame.Surface) -> None:
-        if not self.visible: return
         abs_rect = self.get_absolute_rect()
         x, y, w, h = abs_rect
-        pygame.draw.line(surface, self.fg, (x, y), (x + w, y), 1)           # Top
-        pygame.draw.line(surface, self.fg, (x, y + h), (x + w, y + h), 1)   # Bottom  
-        pygame.draw.line(surface, self.fg, (x, y), (x, y + h), 1)           # Left
-        pygame.draw.line(surface, self.fg, (x + w, y), (x + w, y + h), 1)   # Right
+        pygame.draw.line(surface, self.shade, (x, y), (x + w, y), 1)           # Top
+        pygame.draw.line(surface, self.shade, (x, y + h), (x + w, y + h), 1)   # Bottom  
+        pygame.draw.line(surface, self.shade, (x, y), (x, y + h), 1)           # Left
+        pygame.draw.line(surface, self.shade, (x + w, y), (x + w, y + h), 1)   # Right
     
     def fill_region(self, surface: pygame.Surface, pattern: int = 0) -> None:
         abs_rect = self.get_absolute_rect()
@@ -222,16 +221,16 @@ class Theme:
         elif pattern == 4:
             for i, y in enumerate(range(abs_rect.y, abs_rect.bottom)):
                 ratio = i / abs_rect.height
-                color = self._color_lerp(self.bg, self.shade, ratio)
+                color = self._color_lerp(self.shade, self.bg, ratio)
                 pygame.draw.line(surface, color, (abs_rect.x, y), (abs_rect.right, y))
 
     def new_theme(self, base_hue: int = None) -> Dict[str, Tuple[int, int, int]]:
         if base_hue is None:
             base_hue = random.randint(0, 360)
         return {
-            'fg':        Theme._hsl_to_rgb(base_hue, 90, 90),   # default foreground
-            'bg':        Theme._hsl_to_rgb(base_hue, 30, 30),   # default background
-            'shade':     Theme._hsl_to_rgb(base_hue, 45, 45),   # default shadow
+            'fg':        Theme._hsl_to_rgb(base_hue, 75, 75),   # default foreground
+            'bg':        Theme._hsl_to_rgb(base_hue, 10, 10),   # default background
+            'shade':     Theme._hsl_to_rgb(base_hue, 25, 25),   # default shadow
 
             # Text
             'font_small': Theme._hsl_to_rgb(base_hue, 80, 80),  # default text
