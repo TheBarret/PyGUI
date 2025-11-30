@@ -51,7 +51,7 @@ class Component(Dispatcher, Messenger, Theme):
         self.children.clear()
         self.parent = None
         self.terminated = True
-        self.rect = pygame.Rect(self.rect.x, self.rect.y, 1, 1)
+        self.rect = pygame.Rect(self.rect.x, self.rect.y, self.rect.w, 16)
     
     def reset(self) -> None:
         self.redraw = True
@@ -76,6 +76,7 @@ class Component(Dispatcher, Messenger, Theme):
             self.parent.children.insert(0, self)
             self.parent.reset()
 
+   
     # QOL UTILITIES
     
     def draw_clipped(self, surface: pygame.Surface) -> None:

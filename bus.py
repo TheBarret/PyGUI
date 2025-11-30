@@ -26,11 +26,12 @@ class Response(IntEnum):
     M_REDRAW = 20   # force redraw
     M_SHUTDOWN = 21 # kill switch
     M_THEME = 22    # redraw theme
+    M_CONTRAST = 23 # update contrast
     
     # advertisers
-    M_REGISTER = 23 # component new
-    M_BYE = 24      # component closure
-    M_LOCK = 25     # component lock
+    M_REGISTER = 33 # component new
+    M_BYE = 34      # component closure
+    M_LOCK = 35     # component lock
     
 
 @dataclass(frozen=True)
@@ -66,12 +67,12 @@ class AddressBus:
             component.address = addr
         
         self._components[addr] = component
-        #print(f'[register] {component.name} at: {component.address} {component.rect}')
+        print(f'[register] {component.name} at: {component.address} {component.rect}')
         return addr
 
     def unregister(self, component: 'Component') -> None:
         self._components.pop(component.address, None)
-        #print(f'[unregister] {component.name} at: {component.address} {component.rect}')
+        print(f'[unregister] {component.name} at: {component.address} {component.rect}')
     
     # Posting
     def post(self, msg: Packet) -> bool:

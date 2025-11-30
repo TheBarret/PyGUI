@@ -13,6 +13,7 @@ class Dispatcher:
         # states
         self.visible = True
         self.enabled = True
+        #self.orphan = False
        
         # hierarchy
         self.parent: Optional['Component'] = None
@@ -144,35 +145,57 @@ class Messenger:
             child.register_all(bus)
     
     def get_metadata(self) -> dict:
-        return {
-            'name': getattr(self, 'name', '?'),
-            'type': self.__class__.__name__,
-            'length': len(self.children),
-            'ts': time.time()
+        metadata = {
+            'name'      : getattr(self, 'name', '?'),
+            'type'      : self.__class__.__name__,
+            'children'  : len(self.children),
+            'delta'     : time.time(),
+            'address'   : self.address,
         }
+        # parent if any
+        if self.parent and hasattr(self.parent, 'name'):
+            metadata['parent'] = self.parent.name
+        return metadata
         
     def handle_message(self, msg: Packet) -> None:
+        if msg.sender == self.address:
+            return
+        if msg.rs == Response.M_PING:
+            self.send_pong(msg)
+        elif msg.rs == Response.M_PONG:
+            pass # silently
+        elif msg.rs == Response.M_SHUTDOWN:
+            self.destroy()
+        elif msg.rs == Response.M_REDRAW:
+            self.reset()
+        elif msg.rs == Response.M_THEME:
+            self.bg         = pygame.Color(msg.data['bg'])
+            self.fg         = pygame.Color(msg.data['fg'])
+            self.shade      = pygame.Color(msg.data['shade'])
+            self.font_small = pygame.Color(msg.data['font_small'])
+            self.font_big   = pygame.Color(msg.data['font_big'])
+            self.reset()
+        elif msg.rs == Response.M_LOCK:
+            pass # silently
+        elif msg.rs == Response.M_CONTRAST:
+            self.contrast = float(msg.data)
+            self.reset()
+    
+    # API
+    
+    def send_ping(self, reveiver: int = BROADCAST) -> None:
         hoster = self.root()
-        if hoster:
-            if msg.sender == self.address:
-                return
-            if msg.rs == Response.M_PING:
-                hoster.bus.post(Packet(receiver=msg.sender,sender=self.address, rs=Response.M_PONG, data=self.get_metadata()))
-            elif msg.rs == Response.M_SHUTDOWN:
-                self.destroy()
-            elif msg.rs == Response.M_REDRAW:
-                hoster.bus.post(Packet(receiver=msg.sender,sender=self.address, rs=Response.M_OK, data=True))
-                self.reset()
-            elif msg.rs == Response.M_THEME:
-                self.bg = pygame.Color(msg.data['bg'])
-                self.fg = pygame.Color(msg.data['fg'])
-                self.shade = pygame.Color(msg.data['shade'])
-                self.font_small = pygame.Color(msg.data['font_small'])
-                self.font_big = pygame.Color(msg.data['font_big'])
-                self.reset()
+        if hasattr(hoster, 'bus'):
+            hoster.bus.post(Packet(receiver=reveiver,sender=self.address, rs=Response.M_PING, data=self.get_metadata()))
+    
+    def send_pong(self, msg: Packet) -> None:
+        hoster = self.root()
+        if hasattr(hoster, 'bus'):
+            hoster.bus.post(Packet(receiver=msg.sender,sender=self.address, rs=Response.M_PONG, data=self.get_metadata()))
+    
 class Theme:
     def __init__(self):
-        # Border & Filler
+        # Default Border & Filler
         self.border = False
         self.border_style = 0  # 0: solid, 1: dashed, 2: dotted
         self.border_thickness = 1
@@ -183,23 +206,19 @@ class Theme:
         self.surface: Optional[pygame.Surface] = None
         self.redraw = True
         
-        # basics
+        # Default colors
+        self.contrast       = 0.1
         self.bg             = pygame.Color(90, 90, 90)
         self.fg             = pygame.Color(255, 255, 255)
         self.shade          = pygame.Color(70, 70, 70)
         
-        # fonts
+        # Default fonts
         self.font_big       = pygame.Color(255, 255, 255)
         self.font_small     = pygame.Color(155, 155, 155)
         self.font           = pygame.font.Font('./assets/JetBrainsMono-Regular.ttf', 12)
-        self.fontS          = pygame.font.Font('./assets/JetBrainsMono-Bold.ttf', 9)
+        self.fontS          = pygame.font.Font('./assets/JetBrainsMono-Thin.ttf', 11)
         self.fontB          = pygame.font.Font('./assets/JetBrainsMono-Bold.ttf', 15)
     
-    def draw_locked(self, surface: pygame.Surface) -> None:
-        abs_rect = self.get_absolute_rect()
-        x, y, w, h = abs_rect
-        pygame.draw.line(surface, (255,90,90), (x-1, y-1), (x-1 + w+1, y-1), 2)
-        
     def draw_frame(self, surface: pygame.Surface) -> None:
         if not self.visible or not self.border:
             return
@@ -264,38 +283,47 @@ class Theme:
     def fill_region(self, surface: pygame.Surface, pattern: int = 0) -> None:
         abs_rect = self.get_absolute_rect()
         
-        if pattern == 0:
+        if pattern == 0: # solid
             pygame.draw.rect(surface, self.bg, abs_rect)
-        elif pattern == 1:
+        elif pattern == 1: # wireframe
             for y in range(abs_rect.y, abs_rect.bottom, 4):
                 pygame.draw.line(surface, self.shade, (abs_rect.x, y), (abs_rect.right, y), 1)
-        elif pattern == 2:
+        elif pattern == 2: # lines
             for y in range(abs_rect.y, abs_rect.bottom, 3):
                 pygame.draw.line(surface, self.shade, (abs_rect.x, y), (abs_rect.right, y), 1)
             for x in range(abs_rect.x, abs_rect.right, 3):
                 pygame.draw.line(surface, self.shade, (x, abs_rect.y), (x, abs_rect.bottom), 1)
-        elif pattern == 3:
+        elif pattern == 3: # crossed
             for y in range(abs_rect.y + 2, abs_rect.bottom, 4):
                 for x in range(abs_rect.x + 2, abs_rect.right, 4):
                     surface.set_at((x, y), self.shade)
-        elif pattern == 4:
+        elif pattern == 4: # gradients
             for i, y in enumerate(range(abs_rect.y, abs_rect.bottom)):
                 ratio = i / abs_rect.height
                 color = self._color_lerp(self.shade, self.bg, ratio)
                 pygame.draw.line(surface, color, (abs_rect.x, y), (abs_rect.right, y))
 
-    def new_theme(self, base_hue: int = None) -> Dict[str, Tuple[int, int, int]]:
-        if base_hue is None:
+    def new_theme(self, base_hue: int = -1) -> Dict[str, Tuple[int, int, int]]:
+        if base_hue == -1:
             base_hue = random.randint(0, 360)
+        
+        bg_lightness = max(10, min(40, 40 * (1 - self.contrast * 0.5)))  # 10-40
+        fg_lightness = min(95, 60 + (self.contrast * 35))  # 60-95
+        shade_lightness = (bg_lightness + fg_lightness) // 2  # Midpoint
+        bg_saturation = max(5, min(25, 25 * (1 - self.contrast * 0.3)))  # 5-25
+        fg_saturation = min(90, 70 + (self.contrast * 20))  # 70-90
+        shade_saturation = (bg_saturation + fg_saturation) // 2  # Midpoint
+        font_lightness = fg_lightness  # Usually light fonts
+        font_saturation = fg_saturation  # Keep similar saturation to fg
+        
         return {
-            'fg':        Theme._hsl_to_rgb(base_hue, 80, 80),   # default foreground
-            'bg':        Theme._hsl_to_rgb(base_hue, 20, 20),   # default background
-            'shade':     Theme._hsl_to_rgb(base_hue, 45, 45),   # default shadow
-
-            # Text
-            'font_small': Theme._hsl_to_rgb(base_hue, 80, 80),  # default text
-            'font_big':   Theme._hsl_to_rgb(base_hue, 90, 90),  # default header
-            }
+            'bg':        Theme._hsl_to_rgb(base_hue, bg_saturation, bg_lightness),      # Background
+            'fg':        Theme._hsl_to_rgb(base_hue, fg_saturation, fg_lightness),      # Foreground/Border
+            'shade':     Theme._hsl_to_rgb(base_hue, shade_saturation, shade_lightness), # Secondary
+            
+            'font_small': Theme._hsl_to_rgb(base_hue, font_saturation, min(90, font_lightness + 10)),  # Text
+            'font_big':   Theme._hsl_to_rgb(base_hue, font_saturation, min(100, font_lightness + 15)), # Headers
+        }
             
     def _color_lerp(self, color1: pygame.Color, color2: pygame.Color, ratio: float) -> pygame.Color:
         """Interpolate between two colors"""

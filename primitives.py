@@ -2,7 +2,7 @@ import pygame
 import time
 import random
 from enum import IntEnum
-from typing import List, Any, Dict, Tuple, Callable
+from typing import List, Any, Dict, Tuple, Callable, Optional
 
 from component import Component
 from bus import BROADCAST, MASTER, Response, Packet, AddressBus
@@ -158,18 +158,56 @@ class MultiLabel(Component):
             if not para:
                 self._lines.append("")
                 continue
+            
             words = para.split(' ')
-            line = ""
+            current_line = ""
+            
             for word in words:
-                test_line = f"{line} {word}".strip()
-                if self._font.size(test_line)[0] <= avail_width:
-                    line = test_line
+                # Test adding this word to current line
+                test_line = f"{current_line} {word}".strip() if current_line else word
+                test_width = self._font.size(test_line)[0]
+                
+                if test_width <= avail_width:
+                    current_line = test_line
                 else:
-                    if line:
-                        self._lines.append(line)
-                    line = word  # start new line
-            if line:
-                self._lines.append(line)
+                    # If current line is empty, this word is too long for any line
+                    if not current_line:
+                        # Force break the long word
+                        current_line = self._break_long_word(word, avail_width)
+                        self._lines.append(current_line)
+                        current_line = ""
+                    else:
+                        # Current line fits, but adding word doesn't - add current line and start new
+                        self._lines.append(current_line)
+                        current_line = word
+            
+            if current_line:
+                self._lines.append(current_line)
+
+    def _break_long_word(self, word: str, max_width: int) -> str:
+        """Break a word that's too long for the available width"""
+        if not word:
+            return word
+        
+        # Binary search for the longest substring that fits
+        left, right = 0, len(word)
+        best = 0
+        
+        while left <= right:
+            mid = (left + right) // 2
+            test = word[:mid] + "…"
+            if self._font.size(test)[0] <= max_width:
+                best = mid
+                left = mid + 1
+            else:
+                right = mid - 1
+        
+        if best == 0:
+            return word[:1] + "…" if len(word) > 1 else word
+        elif best == len(word):
+            return word
+        else:
+            return word[:best] + "…"
 
     def draw(self, surface: pygame.Surface) -> None:
         if not self.visible or not self._lines:
@@ -226,6 +264,8 @@ class Button(Component):
         self.name = 'Button'
         self.filler = True
         self.filler_style = 0
+        self.border = True
+        self.border_style = 0
         self.text = text
         self.padding = 4
         self.text_style = style
@@ -240,14 +280,12 @@ class Button(Component):
         return
         
     def process_event(self, event: pygame.event.Event) -> bool:
-        consumed = super().process_event(event)
-        
         if event.type == pygame.MOUSEBUTTONUP and event.button == 1:
-            if self.active:
+            if self.active and self.is_inside(event.pos):
                 if self.on_click:
                     self.on_click()
                 return True
-        return consumed
+        return super().process_event(event)
 
     def draw(self, surface: pygame.Surface) -> None:
         if not self.visible:
@@ -292,3 +330,183 @@ class Button(Component):
             
             surface.blit(text_surf, text_rect)
 
+class Toolbar(Component):
+    def __init__(self, x: int = 0, y: int = 0, width: int = 400, height: int = 24,
+                 h_align: Alignment = Alignment.LEFT, v_align: Alignment = Alignment.CENTER):
+        super().__init__(x, y, width, height)
+        self.name = 'HorizontalStrip'
+        self.filler = True
+        self.filler_style = 0
+        self.border = True
+        self.border_style = 1
+        self.spacing = 4
+        self.padding = 4
+        self.auto_reposition = True
+        
+        # Alignment properties
+        self.h_align = h_align  # Horizontal alignment for items
+        self.v_align = v_align  # Vertical alignment for items
+        
+    def add(self, child: 'Component') -> None:
+        super().add(child)
+        if self.auto_reposition:
+            self.reposition_items()
+    
+    def remove(self, child: 'Component') -> None:
+        super().remove(child)
+        if self.auto_reposition:
+            self.reposition_items()
+    
+    def reposition_items(self) -> None:
+        if not self.children:
+            return
+
+        total_content_width = sum(child.width for child in self.children) + \
+                             (len(self.children) - 1) * self.spacing
+        
+        if self.h_align == Alignment.LEFT:
+            current_x = self.padding
+        elif self.h_align == Alignment.RIGHT:
+            current_x = self.width - self.padding - total_content_width
+        else:  # CENTER
+            current_x = self.padding + (self.width - 2 * self.padding - total_content_width) // 2
+        
+        current_x = max(self.padding, current_x)  # Ensure not negative
+        
+        for child in self.children:
+            child.x = current_x
+            
+            available_height = self.height - 2 * self.padding
+            if self.v_align == Alignment.TOP:
+                child.y = self.padding
+            elif self.v_align == Alignment.BOTTOM:
+                child.y = self.height - self.padding - child.height
+            else:  # CENTER
+                child.y = self.padding + (available_height - child.height) // 2
+            
+            child.y = max(self.padding, min(child.y, self.height - child.height - self.padding))
+            current_x += child.width + self.spacing
+            if current_x > self.width - self.padding:
+                child.visible = False
+            else:
+                child.visible = True
+            if child.height > self.height - 2 * self.padding:
+                child.height = self.height - 2 * self.padding
+ 
+class Slider(Component):
+    def __init__(self, x: int = 0, y: int = 0, width: int = 100, height: int = 20, 
+                 min_val: float = 0, max_val: float = 100, initial_val: float = 50,
+                 on_change: Callable[[float], None] = None):
+        super().__init__(x, y, width, height)
+        self.name = 'Slider'
+        self.filler = True
+        self.filler_style = 0
+        self.border = True
+        self.border_style = 0
+        self.padding = 2
+        
+        # Slider properties
+        self.min_value = min_val
+        self.max_value = max_val
+        self.value = initial_val
+        self.on_change = on_change
+        
+        # Interaction
+        self.dragging = False
+        self.knob_size = min(15, height - 4)
+        self.knob_x = self._value_to_position(self.value)
+        
+        # Visual
+        self.knob_color = self.fg
+        self.track_color = self.shade
+    
+    def _value_to_position(self, value: float) -> int:
+        """Convert value to knob x position"""
+        normalized = (value - self.min_value) / (self.max_value - self.min_value)
+        return int(self.padding + normalized * (self.width - 2 * self.padding - self.knob_size))
+    
+    def _position_to_value(self, x: int) -> float:
+        """Convert knob x position to value - x is in screen coordinates"""
+        # Get the absolute position of the slider
+        abs_rect = self.get_absolute_rect()
+        
+        # Convert screen coordinate to local coordinate
+        local_x = x - abs_rect.x
+        
+        # Clamp to valid range (accounting for padding and knob size)
+        max_range = self.width - 2 * self.padding - self.knob_size
+        relative_x = max(0, min(local_x - self.padding, max_range))
+        
+        # Normalize to 0-1 range
+        if max_range <= 0:
+            normalized = 0.0
+        else:
+            normalized = relative_x / max_range
+        
+        # Convert to actual value range
+        return self.min_value + normalized * (self.max_value - self.min_value)
+    
+    def process_event(self, event: pygame.event.Event) -> bool:
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            abs_rect = self.get_absolute_rect()
+            
+            # Check if click is on knob
+            knob_rect = pygame.Rect(self.knob_x, abs_rect.y + (abs_rect.height - self.knob_size) // 2, 
+                                   self.knob_size, self.knob_size)
+            
+            if knob_rect.collidepoint(event.pos):
+                self.dragging = True  # Start dragging the knob
+                return True
+            # Check if click is on track (jump to position and start dragging)
+            elif abs_rect.collidepoint(event.pos):
+                self.knob_x = event.pos[0] - abs_rect.x - self.knob_size // 2
+                self.knob_x = max(self.padding, min(self.knob_x, 
+                                                  self.width - self.knob_size - self.padding))
+                self.value = self._position_to_value(self.knob_x + abs_rect.x)
+                if self.on_change:
+                    self.on_change(self.value)
+                self.dragging = True  # Start dragging after jump to position
+                self.reset()
+                return True
+                
+        elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
+            if self.dragging:
+                self.dragging = False
+                return True
+                
+        elif event.type == pygame.MOUSEMOTION and self.dragging:
+            abs_rect = self.get_absolute_rect()
+            self.knob_x = event.pos[0] - abs_rect.x - self.knob_size // 2
+            self.knob_x = max(self.padding, min(self.knob_x, 
+                                              self.width - self.knob_size - self.padding))
+            self.value = self._position_to_value(self.knob_x + abs_rect.x)
+            if self.on_change:
+                self.on_change(self.value)
+            self.reset()
+            return True
+            
+        return super().process_event(event)
+    
+    def draw(self, surface: pygame.Surface) -> None:
+        if not self.visible:
+            return
+        super().draw(surface)
+        
+        abs_rect = self.get_absolute_rect()
+        
+        # Draw track
+        track_y = abs_rect.centery
+        track_height = 4
+        pygame.draw.line(surface, self.track_color, 
+                        (abs_rect.left + self.padding, track_y),
+                        (abs_rect.right - self.padding, track_y), track_height)
+        
+        # Draw knob
+        knob_rect = pygame.Rect(
+            abs_rect.left + self.knob_x,
+            abs_rect.centery - self.knob_size // 2,
+            self.knob_size, 
+            self.knob_size
+        )
+        pygame.draw.rect(surface, self.knob_color, knob_rect)
+        pygame.draw.rect(surface, self.fg, knob_rect, 1)

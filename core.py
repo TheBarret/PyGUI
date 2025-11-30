@@ -1,7 +1,7 @@
 import pygame
 import time
 import random
-from typing import List, Any, Tuple, Callable
+from typing import List, Any, Tuple, Callable, Optional
 from component import Component
 from bus import BROADCAST, MASTER, Response, Packet, AddressBus
 
@@ -40,31 +40,40 @@ class Engine(Component):
         print(f'[engine] terminated {child.name} at address {child.address}')
         
     def run(self) -> None:
+        closing = False
         self.running = True
-        
-        while self.running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT:
-                    self.destroy()
-                    continue
-                self.handle_event(event)
-            
-            self.dt = self.clock.tick(self.fps) / 1000.0
-            
-            # throttle bus pump
-            self.bus_accumulator += self.dt
-            if self.bus_accumulator >= self.bus_freq:
-                self.bus.pump()
-                self.bus_accumulator = 0.0
-            
-            self.update(self.dt)
-             
-            self.surface.fill((0, 0, 0))
-            self.draw(self.surface)
-            
-            pygame.display.flip()
-        
-        pygame.quit()
+        try:
+            while self.running:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        self.destroy()
+                        closing = True
+                        continue
+                    if not closing:
+                        self.handle_event(event)
+                
+                self.dt = self.clock.tick(self.fps) / 1000.0
+                
+                # throttle bus pump
+                self.bus_accumulator += self.dt
+                if self.bus_accumulator >= self.bus_freq:
+                    self.bus.pump()
+                    self.bus_accumulator = 0.0
+                
+                self.update(self.dt)
+                 
+                self.surface.fill((0, 0, 0))
+                self.draw(self.surface)
+                
+                pygame.display.flip()
+        except KeyboardInterrupt:
+            print("Interrupted by user...")
+            self.destroy()
+        except Exception as e:
+            print(f"Fatal: {e}")
+            self.destroy()
+        finally:
+            pygame.quit()    
         
     def handle_event(self, event: pygame.event.Event) -> bool:
         if event.type == pygame.KEYDOWN:
@@ -79,7 +88,7 @@ class Engine(Component):
             receiver=BROADCAST,
             sender=self.address,
             rs=Response.M_SHUTDOWN,
-            data=None
+            data=self.get_metadata()
         ))
         super().destroy()
         
@@ -87,9 +96,9 @@ class Engine(Component):
         if msg.sender == self.address:
             return
         if msg.receiver  == BROADCAST:
-            print(f'[engine] * [BROADCAST] <{msg.sender}> {msg.rs.name}')
+            print(f'[engine] * <BROADCAST:{msg.rs.name}> {msg.data}')
         else:
-            print(f'[engine] * <{msg.sender}> {msg.rs.name}')
+            print(f'[engine] * <{msg.sender}:{msg.rs.name}> {msg.data}')
         
         if msg.rs == Response.M_BYE:
             defunkt = msg.data
